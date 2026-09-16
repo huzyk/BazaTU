@@ -68,5 +68,9 @@ app.get('/api/items',(req,res)=>{
 app.get('/api/items/:id',(req,res)=>{const r=db.prepare(`SELECT x.*,m.received_at,m.sender,m.source_mailbox,m.body_text,m.body_html,m.subject source_subject,i.name insurer FROM items x JOIN messages m ON m.id=x.message_id JOIN insurers i ON i.id=m.insurer_id WHERE x.id=?`).get(req.params.id); if(!r)return res.sendStatus(404); r.tags=db.prepare('SELECT t.name FROM item_tags it JOIN tags t ON t.id=it.tag_id WHERE it.item_id=?').all(r.id).map(x=>x.name);r.attachments=db.prepare('SELECT id,filename,size FROM attachments WHERE message_id=?').all(r.message_id);r.status=status(r.valid_to,r.status_override);res.json(r)});
 app.post('/api/insurers',(req,res)=>{const name=String(req.body.name||'').trim();if(!name)return res.status(400).json({error:'Brak nazwy'});try{const r=db.prepare('INSERT INTO insurers(name,short_name) VALUES (?,?)').run(name,name);res.json({id:r.lastInsertRowid,name})}catch(e){res.status(409).json({error:'TU już istnieje'})}});
 app.get('/api/stats',(req,res)=>{const items=db.prepare('SELECT valid_to,status_override FROM items').all();res.json({all:items.length,current:items.filter(x=>status(x.valid_to,x.status_override)==='Aktualne').length,expiring:items.filter(x=>{if(!x.valid_to)return false;const d=(new Date(x.valid_to+'T23:59:59')-new Date())/86400000;return d>=0&&d<=7}).length,archived:items.filter(x=>status(x.valid_to,x.status_override)==='Archiwalne').length})});
-app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+
+// Express 5 / path-to-regexp no longer accepts app.get('*').
+// Regex fallback serves the SPA for every non-API GET route.
+app.get(/.*/, (req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+
 app.listen(PORT,'0.0.0.0',()=>console.log(`Baza TU: http://localhost:${PORT}`));
