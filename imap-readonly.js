@@ -7,7 +7,7 @@ function config(password) {
     host: 'mail-serwer287110.lh.pl',
     port: 993,
     secure: true,
-    auth: { user: 'kontakt@elefi.pl', password },
+    auth: { user: 'kontakt@elefi.pl', pass: password },
     logger: false
   };
 }
