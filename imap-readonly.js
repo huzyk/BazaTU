@@ -1,55 +1,8 @@
-const { ImapFlow } = require('imapflow');
-
-const ALLOWED_FOLDERS = ['Allianz','Compensa','Generali','Hestia','Interrisk','Link4','PZU','Uniqa','Warta'];
-
-function config(password) {
-  return {
-    host: 'mail-serwer287110.lh.pl',
-    port: 993,
-    secure: true,
-    auth: { user: 'kontakt@elefi.pl', pass: password },
-    logger: false
-  };
-}
-
-async function withClient(password, fn) {
-  if (!password) throw new Error('Brak hasła IMAP');
-  const client = new ImapFlow(config(password));
-  try {
-    await client.connect();
-    return await fn(client);
-  } finally {
-    try { await client.logout(); } catch (_) {}
-  }
-}
-
-async function testConnection(password) {
-  return withClient(password, async client => {
-    const boxes = await client.list();
-    const byName = new Map(boxes.map(b => [String(b.name).toLowerCase(), b]));
-    return ALLOWED_FOLDERS.map(name => {
-      const box = byName.get(name.toLowerCase());
-      return { name, found: !!box, path: box ? box.path : null };
-    });
-  });
-}
-
-async function scanFolders(password) {
-  return withClient(password, async client => {
-    const boxes = await client.list();
-    const byName = new Map(boxes.map(b => [String(b.name).toLowerCase(), b]));
-    const result = [];
-    for (const wanted of ALLOWED_FOLDERS) {
-      const box = byName.get(wanted.toLowerCase());
-      if (!box) { result.push({ name: wanted, found: false, messages: 0 }); continue; }
-      // CRITICAL SAFETY: mailbox is opened read-only. No move/delete/flag/expunge methods exist in this module.
-      const lock = await client.getMailboxLock(box.path, { readOnly: true });
-      try {
-        result.push({ name: wanted, found: true, path: box.path, messages: client.mailbox.exists || 0 });
-      } finally { lock.release(); }
-    }
-    return result;
-  });
-}
-
-module.exports = { ALLOWED_FOLDERS, testConnection, scanFolders };
+const { ImapFlow }=require('imapflow');const { simpleParser }=require('mailparser');
+const ALLOWED_FOLDERS=['Allianz','Compensa','Generali','Hestia','Interrisk','Link4','PZU','Uniqa','Warta'];
+function config(password){return{host:'mail-serwer287110.lh.pl',port:993,secure:true,auth:{user:'kontakt@elefi.pl',pass:password},logger:false}}
+async function withClient(password,fn){if(!password)throw new Error('Brak hasła IMAP');const c=new ImapFlow(config(password));try{await c.connect();return await fn(c)}finally{try{await c.logout()}catch(_){}}}
+async function testConnection(password){return withClient(password,async c=>{const boxes=await c.list();const m=new Map(boxes.map(b=>[String(b.name).toLowerCase(),b]));return ALLOWED_FOLDERS.map(name=>{const b=m.get(name.toLowerCase());return{name,found:!!b,path:b?b.path:null}})})}
+async function scanFolders(password){return withClient(password,async c=>{const boxes=await c.list();const m=new Map(boxes.map(b=>[String(b.name).toLowerCase(),b]));const out=[];for(const name of ALLOWED_FOLDERS){const b=m.get(name.toLowerCase());if(!b){out.push({name,found:false,messages:0});continue}const lock=await c.getMailboxLock(b.path,{readOnly:true});try{out.push({name,found:true,path:b.path,messages:c.mailbox.exists||0})}finally{lock.release()}}return out})}
+async function previewMessages(password,limit=20){limit=Math.max(1,Math.min(Number(limit)||20,50));return withClient(password,async c=>{const boxes=await c.list();const m=new Map(boxes.map(b=>[String(b.name).toLowerCase(),b]));const out=[];for(const name of ALLOWED_FOLDERS){const b=m.get(name.toLowerCase());if(!b)continue;const lock=await c.getMailboxLock(b.path,{readOnly:true});try{const n=c.mailbox.exists||0;if(!n)continue;const start=Math.max(1,n-limit+1);for await(const msg of c.fetch(`${start}:*`,{uid:true,envelope:true,source:true},{uid:false})){const parsed=await simpleParser(msg.source,{skipHtmlToText:false,skipTextToHtml:true});out.push({folder:name,uid:msg.uid,messageId:parsed.messageId||null,subject:parsed.subject||'(bez tematu)',date:parsed.date?parsed.date.toISOString():null,from:parsed.from?.text||'',text:(parsed.text||'').trim().slice(0,20000),html:typeof parsed.html==='string'?parsed.html.slice(0,100000):'',attachments:(parsed.attachments||[]).map(a=>({filename:a.filename||'załącznik',contentType:a.contentType,size:a.size||a.content?.length||0}))})}}finally{lock.release()}}return out.sort((a,b)=>String(b.date).localeCompare(String(a.date)))})}
+module.exports={ALLOWED_FOLDERS,testConnection,scanFolders,previewMessages};
