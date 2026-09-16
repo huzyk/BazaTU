@@ -1,0 +1,9 @@
+const fs=require('fs'),path=require('path');
+const CATEGORIES=['Konkursy i akcje','Promocje i zniżki','Produkty','Procedury i zmiany','Systemy','Szkolenia','Pozostałe'];
+const MODEL_PATH=path.join(__dirname,'data','light-classifier.json');
+function tokens(s){return String(s||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').match(/[a-z0-9]{2,}/g)||[]}
+function features(title,body){const a=tokens(title),b=tokens(body).slice(0,1800),m=new Map();for(const t of a)m.set(t,(m.get(t)||0)+3);for(const t of b)m.set(t,(m.get(t)||0)+1);return m}
+function train(rows){const docs=rows.filter(r=>CATEGORIES.includes(r.category));const byCat=Object.fromEntries(CATEGORIES.map(c=>[c,{docs:0,total:0,words:{}}]));let vocab=new Set();for(const r of docs){const c=byCat[r.category];c.docs++;for(const [w,n] of features(r.title,r.body_text)){c.words[w]=(c.words[w]||0)+n;c.total+=n;vocab.add(w)}}const model={version:1,trained_at:new Date().toISOString(),documents:docs.length,vocab:vocab.size,categories:byCat};fs.mkdirSync(path.dirname(MODEL_PATH),{recursive:true});fs.writeFileSync(MODEL_PATH,JSON.stringify(model));return model}
+function load(){try{return JSON.parse(fs.readFileSync(MODEL_PATH,'utf8'))}catch{return null}}
+function predict(model,title,body){if(!model||!model.documents)return null;const f=features(title,body),V=Math.max(1,model.vocab),scores=[];for(const cat of CATEGORIES){const c=model.categories[cat],prior=(c.docs+1)/(model.documents+CATEGORIES.length);let score=Math.log(prior);for(const [w,n] of f){const count=c.words[w]||0;score+=Math.min(n,4)*Math.log((count+1)/(c.total+V))}scores.push([cat,score])}scores.sort((a,b)=>b[1]-a[1]);const max=scores[0][1],exps=scores.map(x=>Math.exp(x[1]-max)),sum=exps.reduce((a,b)=>a+b,0);return{category:scores[0][0],confidence:exps[0]/sum,ranking:scores.map((x,i)=>({category:x[0],probability:exps[i]/sum}))}}
+module.exports={CATEGORIES,MODEL_PATH,train,load,predict};
